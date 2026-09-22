@@ -1,0 +1,221 @@
+import glfw
+import sys
+import math
+
+import numpy as np
+
+from ctypes import *
+from OpenGL.GL import *
+
+from PIL import Image
+from shader import Shader
+
+# configurações
+SCR_WIDTH = 800
+SCR_HEIGHT = 600
+
+def main():
+    # glfw: inicializar e configurar
+    # --------------------------------------------------
+    glfw.init()
+    glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+    glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+    glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+
+    if (sys.platform == "darwin"):
+        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, True)
+
+    # criação da janela glfw
+    # --------------------------------------------------
+    window = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "Leran PyOpenGL", None, None)
+
+    if (window == None):
+        print("Falha ao criar a janela GLFW")
+        glfw.terminate()
+        return
+
+    if (sys.platform == "win32"):
+        # Obtém o tamanho da janela passado para glfwCreateWindow
+        pWidth, pHeight = glfw.get_window_size(window)
+
+        # Obtém a resolução do monitor principal
+        vidMode = glfw.get_video_mode(glfw.get_primary_monitor())
+
+        # Centralizar a janela
+        glfw.set_window_pos(
+            window,
+            (vidMode.width - pWidth) // 2,
+            (vidMode.height - pHeight) // 2
+        )
+
+    glfw.make_context_current(window)
+    glfw.set_framebuffer_size_callback(window, framebuffer_size_callback)
+
+    # Ativar v-sync
+    glfw.swap_interval(1)
+
+    # construir e compilar nosso programa de shader
+    # --------------------------------------------------
+    ourShader = Shader("res/shaders/texture.vs", "res/shaders/texture.fs")
+
+    # configura dados de vértice (e buffer(s)) e configura atributos de vértice
+    # --------------------------------------------------
+    vertices = np.array([
+        # positions         # colors         # texture coords (observe que os alteramos para dar um "zoom" na nossa imagem de textura)
+        -0.5, -0.5,  0.0,   1.0, 0.0, 0.0,   0.45, 0.45, # inferior esquerdo
+         0.5, -0.5,  0.0,   0.0, 1.0, 0.0,   0.55, 0.45, # inferior direito
+         0.5,  0.5,  0.0,   0.0, 0.0, 1.0,   0.55, 0.55, # superior direito
+        -0.5,  0.5,  0.0,   1.0, 1.0, 0.0,   0.45, 0.55  # superior esquerdo
+    ], dtype=np.float32)
+
+    indices = np.array([
+        0, 1, 2,
+        0, 2, 3
+    ], dtype=np.uint32)
+
+    VAO = glGenVertexArrays(1)
+    VBO = glGenBuffers(1)
+    EBO = glGenBuffers(1)
+
+    glBindVertexArray(VAO)
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO)
+    glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices, GL_STATIC_DRAW)
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO)
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, GL_STATIC_DRAW)
+
+    # position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(c_float), c_void_p(0))
+    glEnableVertexAttribArray(0)
+
+    # color attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(c_float), c_void_p(3 * sizeof(c_float)))
+    glEnableVertexAttribArray(1)
+
+    # texture coord attribute
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(c_float), c_void_p(6 * sizeof(c_float)))
+    glEnableVertexAttribArray(2)
+
+    # carregar e criar uma textura
+    # --------------------------------------------------
+
+    # texture 1
+    # --------------------------------------------------
+    texture1 = glGenTextures(1)
+    glBindTexture(GL_TEXTURE_2D, texture1)
+
+    # define os parâmetros de repetição da textura
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE) # observe que definimos o método de wrapping do container como GL_CLAMP_TO_EDGE
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+    #// definir parâmetros de filtragem de textura
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST) # define a filtragem de textura como vizinho mais próximo para visualizar claramente os texels/pixels
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+    # carregar imagem, criar textura e gerar mipmaps
+    img = Image.open("res/textures/container.jpg")
+    img = img.transpose(Image.FLIP_TOP_BOTTOM) # Instrua o stb_image.h a inverter as texturas carregadas no eixo Y.
+    img = img.convert("RGB")
+
+    width, height = img.size
+    data = np.array(img, dtype=np.uint8)
+
+    if (data is not None):
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data)
+        glGenerateMipmap(GL_TEXTURE_2D)
+    else:
+        print("Falha ao carregar a textura")        
+
+    # texture 2
+    # --------------------------------------------------
+    texture2 = glGenTextures(1)
+    glBindTexture(GL_TEXTURE_2D, texture2)
+
+    # define os parâmetros de repetição da textura
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT) # define o modo de repetição da textura como GL_REPEAT (método padrão)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+
+    #// definir parâmetros de filtragem de textura
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST) # define a filtragem de textura como vizinho mais próximo para visualizar claramente os texels/pixels
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+    # carregar imagem, criar textura e gerar mipmaps
+    img = Image.open("res/textures/awesomeface.png")
+    img = img.transpose(Image.FLIP_TOP_BOTTOM) # Instrua o stb_image.h a inverter as texturas carregadas no eixo Y.
+    img = img.convert("RGBA")
+
+    width, height = img.size
+    data = np.array(img, dtype=np.uint8)
+
+    if (data is not None):
+        # observe que o awesomeface.png possui transparência e, portanto, um canal alfa; certifique-se de informar ao OpenGL que o tipo de dado é GL_RGBA
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data)
+        glGenerateMipmap(GL_TEXTURE_2D)
+    else:
+        print("Falha ao carregar a textura") 
+
+    # informar ao OpenGL, para cada sampler, a qual unidade de textura ele pertence (isso só precisa ser feito uma vez)
+    # --------------------------------------------------
+    ourShader.use() # não se esqueça de ativar/usar o shader antes de definir os uniforms!
+
+    # ou defina manualmente assim:
+    glUniform1i(glGetUniformLocation(ourShader.ID, "texture1"), 0)
+
+    # ou defina-o por meio da classe de textura
+    ourShader.setInt("texture2", 1)
+
+    # loop de renderização
+    # --------------------------------------------------
+    while (not glfw.window_should_close(window)):
+        # input
+        # --------------------------------------------------
+        processInput(window)
+
+        # render
+        # --------------------------------------------------
+        glClearColor(0.2, 0.3, 0.3, 1.0)
+        glClear(GL_COLOR_BUFFER_BIT)
+
+        # vincular texturas às unidades de textura correspondentes
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, texture1)
+        glActiveTexture(GL_TEXTURE1)
+        glBindTexture(GL_TEXTURE_2D, texture2)
+
+        # renderizar contêiner
+        ourShader.use()
+        glBindVertexArray(VAO)
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, c_void_p(0))
+
+        # glfw: troca os buffers e processa eventos de E/S (teclas pressionadas/liberadas, movimento do mouse, etc.)
+        # --------------------------------------------------
+        glfw.swap_buffers(window)
+        glfw.poll_events()
+
+    # opcional: desalocar todos os recursos assim que não forem mais necessários:
+    # --------------------------------------------------
+    glDeleteVertexArrays(1, VAO)
+    glDeleteBuffers(1, VBO)
+    glDeleteBuffers(1, EBO)
+
+    # glfw: finaliza, limpando todos os recursos GLFW alocados anteriormente.
+    # --------------------------------------------------
+    glfw.terminate()
+    return
+
+# processar toda a entrada: consultar a GLFW para verificar se teclas relevantes foram pressionadas ou liberadas neste quadro e reagir de acordo
+# --------------------------------------------------
+def processInput(window):
+    if (glfw.get_key(window, glfw.KEY_ESCAPE) == glfw.PRESS):
+        glfw.set_window_should_close(window, True)
+
+# glfw: sempre que o tamanho da janela é alterado (pelo SO ou por redimensionamento do usuário), esta função de callback é executada
+# --------------------------------------------------
+def framebuffer_size_callback(window, width, height):
+    # certifique-se de que a viewport corresponda às novas dimensões da janela; observe que a largura e
+    # a altura serão significativamente maiores do que as especificadas em telas Retina.
+    glViewport(0, 0, width, height)    
+
+if (__name__ == "__main__"):
+    main()
